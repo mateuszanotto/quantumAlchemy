@@ -75,11 +75,16 @@ def process_structure(args):
         result["LUMO"] - result["HOMO"]
     )
 
-# Main execution
+# Maiin execution
 if __name__ == "__main__":
     print("Loading data")
     df = load_data()
     
+    proceed = input("output.csv is ready. Proceed with structure generation and processing? (y/n) [default: y]: ").strip().lower()
+    if proceed not in ('y', 'yes', ''):
+        print("Exiting program - output.csv is available for use")
+        exit()
+
     print("Initializing model")
     mt = init_model(df)
     
@@ -110,4 +115,16 @@ if __name__ == "__main__":
         results['Gap'].append(gap)
     
     print("Processing complete")
-    # Add further analysis or saving here
+    df_results = pd.DataFrame(results)
+    
+    # Add substitution patterns as columns (z0-z19)
+    df_structures = pd.DataFrame(structures, columns=[f'z{i}' for i in range(20)])
+    
+    # Combine structures with results
+    df_final = pd.concat([df_structures, df_results], axis=1)
+    
+    # Save to CSV with structure count in filename
+    output_file = f'out_{len(structures)}.csv'
+    df_final.to_csv(output_file, index=False)
+    print(f"Saved results to {output_file}")
+    # ======== END NEW CODE ========# Add further analysis or saving here
