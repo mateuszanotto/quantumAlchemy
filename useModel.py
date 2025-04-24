@@ -18,7 +18,9 @@ logging.basicConfig(level=logging.WARNING)
 # Read and process data
 def load_data():
     file_path = 'output.csv'
-    if not os.path.exists(file_path):
+    if os.path.exists(file_path):
+        delete=input(f'File {file_path} exist. Do you want to delete (y/n)? [default: n] ')
+    if not os.path.exists(file_path) or delete in ('y','yes'):
         text_files = [f for f in os.listdir(os.getcwd()) if f.endswith(".out")]
         dataframes = []
         
@@ -27,8 +29,8 @@ def load_data():
             
             # Create molecular indexes
             mol_indexes = np.zeros(20)
-            mol_indexes[np.where(data.atomnos == 5)] = -1
-            mol_indexes[np.where(data.atomnos == 7)] = 1
+            mol_indexes[np.where(data.atomnos[:20] == 5)] = -1
+            mol_indexes[np.where(data.atomnos[:20] == 7)] = 1
             
             # Create DataFrame
             df = pd.DataFrame([mol_indexes], columns=[f'z{i}' for i in range(20)])
@@ -40,13 +42,15 @@ def load_data():
             df["HOMO"] = homo
             df["LUMO"] = lumo
             
+            # Load the last gradient matrix and flatten it
+            grad = data.grads[-1]
+            grad_flat = data.grads.flatten()
+            grad_cols = [f"grad[{i}][{j}]" for i in range(data.natom) for j in ['x','y','z']]
 
-            hess = HessianTools(f"{filename[:-4]}.hess").hessian.flatten()
-            
-            grad_cols = [f"grad[{i//3}][{['x','y','z'][i%3]}]" for i in range(len(grad))]
-            hess_cols = [f"hess[{i//20}][{i%20}]" for i in range(len(hess))]
-            
-            df = pd.concat([df, pd.DataFrame([grad], columns=grad_cols), 
+            hess = HessianTools(f"{filename[:-4]}.hess").hessian.flatten() 
+            hess_cols = [f"hess[{i}][{j}]" for i in range(data.natom*3) for j in range(data.natom*3)]
+
+            df = pd.concat([df, pd.DataFrame([grad_flat], columns=grad_cols), 
                          pd.DataFrame([hess], columns=hess_cols)], axis=1)
             df.index = [filename]
             dataframes.append(df)
@@ -70,6 +74,9 @@ def load_data():
 def init_model(df):
     mt = nablachem.alchemy.MultiTaylor(df, outputs=df.columns[20:])
     mt.reset_center(**{f'z{i}':0 for i in range(20)})
+    
+    # if there is an error on z15, uncomment this
+    ##mt.reset_filter(z15=0)
     mt.build_model(1)
     return mt
 
@@ -132,7 +139,7 @@ def save_expansion(results):
     df_final = pd.concat([df_structures, df_results], axis=1)
     
     # Select the first 20 columns of the DataFrame
-    subset = df.iloc[:, :20]
+    subset = df_results.iloc[:, :20]
     # Calculate atomB as the count of 1s in each row
     atomB = (subset == 1).sum(axis=1).to_numpy()
     # Calculate atomN as the negative count of -1s in each row
@@ -146,7 +153,6 @@ def save_expansion(results):
     output_file = f'out_{len(structures)}.csv'
     df_final.to_csv(output_file, index=False)
     print(f"Saved results to {output_file}")
-    # ======== END NEW CODE ========# Add further analysis or saving here
 
 # Main execution
 if __name__ == "__main__":
@@ -174,6 +180,8 @@ if __name__ == "__main__":
     print("Processing structures...")
     results = {'Energy': [], 'HOMO': [], 'LUMO': [], 'Gap': [], 'Index': []}
     
+
+    # === CPU code ===
     with ProcessPoolExecutor() as executor:
         # Prepare arguments with model reference (if picklable)
         # If mt isn't picklable, consider using initializer for workers
