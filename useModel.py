@@ -20,6 +20,12 @@ def load_data():
     file_path = 'output.csv'
     if os.path.exists(file_path):
         delete=input(f'File {file_path} exist. Do you want to delete (y/n)? [default: n] ')
+    if delete in ('n','no',' '):
+        df = pd.read_csv(file_path) 
+        df['charge'] = df['carga']
+        df = df.drop(columns=['carga'])
+        df = df.drop(columns=['index'])
+        return df
     if not os.path.exists(file_path) or delete in ('y','yes'):
         text_files = [f for f in os.listdir(os.getcwd()) if f.endswith(".out")]
         dataframes = []
@@ -30,7 +36,10 @@ def load_data():
             # Create molecular indexes
             mol_indexes = np.zeros(20)
             mol_indexes[np.where(data.atomnos[:20] == 5)] = -1
+            atomB = np.count_nonzero(mol_indexes == -1)
+
             mol_indexes[np.where(data.atomnos[:20] == 7)] = 1
+            atomN = np.count_nonzero(mol_indexes == 1)
             
             # Create DataFrame
             df = pd.DataFrame([mol_indexes], columns=[f'z{i}' for i in range(20)])
@@ -55,20 +64,12 @@ def load_data():
             df.index = [filename]
             dataframes.append(df)
             
-            # Select the first 20 columns of the DataFrame
-            subset = df.iloc[:, :20]
-
-            # Calculate atomB as the count of 1s in each row
-            atomB = (subset == 1).sum(axis=1).to_numpy()
-            # Calculate atomN as the negative count of -1s in each row
-            atomN = (-(subset == -1).sum(axis=1)).to_numpy()
             df['atomB'] = atomB
             df['atomN'] = atomN       
             df['Gap'] = df['LUMO']-df["HOMO"]
-
-        pd.concat(dataframes).to_csv(file_path, index=True)
+            df.drop(columns=['Unnamed: 0'])
     
-    return pd.read_csv(file_path).drop(columns=['Unnamed: 0'])
+    return pd.read_csv(file_path)
 
 # Initialize model
 def init_model(df):
@@ -76,8 +77,8 @@ def init_model(df):
     mt.reset_center(**{f'z{i}':0 for i in range(20)})
     
     # if there is an error on z15, uncomment this
-    ##mt.reset_filter(z15=0)
-    mt.build_model(1)
+    #mt.reset_filter(z15=0)
+    mt.build_model(2)
     return mt
 
 def graphs(df,mt):
@@ -129,21 +130,22 @@ def process_structure(args):
         result["LUMO"] - result["HOMO"]
     )
 
-def save_expansion(results):
+def save_expansion(results, structures):
     df_results = pd.DataFrame(results)
     
     # Add substitution patterns as columns (z0-z19)
     df_structures = pd.DataFrame(structures, columns=[f'z{i}' for i in range(20)]) 
+    print(df_structures)
 
     # Combine structures with results
     df_final = pd.concat([df_structures, df_results], axis=1)
     
     # Select the first 20 columns of the DataFrame
-    subset = df_results.iloc[:, :20]
+    subset = df_structures.iloc[:, :20]
     # Calculate atomB as the count of 1s in each row
-    atomB = (subset == 1).sum(axis=1).to_numpy()
+    atomN = (subset == 1).sum(axis=1).to_numpy()
     # Calculate atomN as the negative count of -1s in each row
-    atomN = (-(subset == -1).sum(axis=1)).to_numpy()
+    atomB = (subset == -1).sum(axis=1).to_numpy()
     
     df_final['atomB'] = atomB
     df_final['atomN'] = atomN
@@ -157,7 +159,12 @@ def save_expansion(results):
 # Main execution
 if __name__ == "__main__":
     print("Loading data")
-    df = load_data()
+    ##df = load_data()
+    
+    df = pd.read_csv('output.csv') 
+    df['charge'] = df['carga']
+    df = df.drop(columns=['carga'])
+    df = df.drop(columns=['index'])
 
     print("Initializing model")
     mt = init_model(df)
@@ -203,4 +210,4 @@ if __name__ == "__main__":
     
     print("Processing complete")
         
-    save = save_expansion(results)
+    save = save_expansion(results,structures)
