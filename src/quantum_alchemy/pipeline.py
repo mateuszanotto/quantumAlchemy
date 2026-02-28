@@ -474,8 +474,8 @@ def phase_extract_predict(config, perms, p_invs, args):
     generate_prediction_set(config, perms, p_invs, config.get("num_target_atoms", 20)) 
     
     print("Workflow: Proceeding to property extraction.")
-    props = input("Properties to extract (space separated, default: Energy_DFT): ")
-    if not props: props = ["Energy_DFT"]
+    props = input("Properties to extract (space separated, default: Energy): ")
+    if not props: props = ["Energy model"]
     else: props = props.split()
     
     from .results import extract_all
