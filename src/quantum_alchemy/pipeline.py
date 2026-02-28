@@ -381,6 +381,7 @@ def phase_setup_training(args):
     total_unique_all_subs = get_pet_count(perms_all, 3) 
     print(f"Total theoretically unique structures (all possible substitutions): {total_unique_all_subs}")
 
+
     config = {
         "reference_file": args.reference,
         "target_type": target_type,
@@ -406,7 +407,7 @@ def phase_setup_training(args):
     
     training_structs = []
     training_structs.append(([0] * len(target_indices), 0)) # Reference
- 
+    
     for k in range(1, args.subs + 1):
         k_count = 0
         for num_minus in range(k + 1):
@@ -470,7 +471,7 @@ def phase_extract_predict(config, perms, p_invs, args):
     generate_prediction_set(config, perms, p_invs, config.get("num_target_atoms", 20)) 
     
     print("Workflow: Proceeding to property extraction.")
-    props = input("Properties to extract (space separated, default: Energy): ")
+    #props = input("Properties to extract (space separated, default: Energy model): ")
     if not props: props = ["Energy model"]
     else: props = props.split()
     
