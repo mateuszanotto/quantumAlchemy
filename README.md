@@ -1,6 +1,6 @@
 # Quantum Alchemy
 
-Molecular Alchemy Pipeline for generating and predicting properties of substituted molecules.
+Molecular Alchemy Pipeline for generating and predicting properties of substituted molecules. The properties expansion is calculated by the Quantum Alchemy algorithm Nablachem (https://github.com/NablaChem/nablachem) 
 
 ## Installation
 
@@ -49,3 +49,15 @@ quantumAlchemy benzene.xyz -s
 ```bash
 quantumAlchemy benzene.xyz
 ```
+
+### Workflow
+
+**1. Create the training structures for DFT calculation**
+The training structures are composed by the single and double atomic charge perturbations for every possibility.
+
+
+**2. Read the reference symmetry and extrapolate**
+Generate a .feather list containing the atom changes for triple to n perturbations.
+
+**3. Generate Dataset**
+Retrieve the Quantum Alchemy model properties and save to a .feather
