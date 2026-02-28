@@ -381,9 +381,6 @@ def phase_setup_training(args):
     total_unique_all_subs = get_pet_count(perms_all, 3) 
     print(f"Total theoretically unique structures (all possible substitutions): {total_unique_all_subs}")
 
-    # Target-only permutations for training geometry generation
-    perms, p_invs, _ = get_permutations_target_atoms(args.reference, target_indices)
-
     config = {
         "reference_file": args.reference,
         "target_type": target_type,
@@ -407,9 +404,9 @@ def phase_setup_training(args):
     mol = Molecule.from_file(args.reference)
     coords = mol.cart_coords
     
-    unique_training_structs = []
-    unique_training_structs.append(([0] * len(target_indices), 0)) # Reference
-    
+    training_structs = []
+    training_structs.append(([0] * len(target_indices), 0)) # Reference
+ 
     for k in range(1, args.subs + 1):
         k_count = 0
         for num_minus in range(k + 1):
@@ -423,12 +420,11 @@ def phase_setup_training(args):
                     for i in minus_idxs: struct[i] = -1
                     for i in plus_idxs: struct[i] = 1
                     
-                    if is_orbit_representative(struct, perms):
-                        unique_training_structs.append((struct, charge_delta))
-                        k_count += 1
-        print(f"k={k}: {k_count} unique structures.")
+                    training_structs.append((struct, charge_delta))
+                    k_count += 1
+        print(f"k={k}: {k_count} structures.")
 
-    for idx, (struct, charge_delta) in enumerate(unique_training_structs):
+    for idx, (struct, charge_delta) in enumerate(training_structs):
         new_species = list(all_species)
         for i, val in enumerate(struct):
             if val == -1: new_species[target_indices[i]] = sub_minus_type
@@ -439,7 +435,7 @@ def phase_setup_training(args):
         save_xyz(coords, new_species, filename, comment=f"Charge: {final_charge}")
 
     write_auto_orca_script("training_inputs")
-    print(f"Done. {len(unique_training_structs)} training files generated in 'training_inputs/'.")
+    print(f"Done. {len(training_structs)} training files generated in 'training_inputs/'.")
     print("Next: Run 'training_inputs/auto_orca.sh' and then run this script again.")
 
 def phase_extract_predict(config, perms, p_invs, args):
