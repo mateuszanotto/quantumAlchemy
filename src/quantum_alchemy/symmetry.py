@@ -2,43 +2,8 @@ import numpy as np
 from pymatgen.core import Molecule
 from pymatgen.symmetry.analyzer import PointGroupAnalyzer
 
-def get_permutations(xyz_file, target_atom_indices):
-    """
-    Identifies the point group of the molecule and returns the atom permutations
-    for the specified target indices under each symmetry operation.
-    """
-    mol = Molecule.from_file(xyz_file)
-    pga = PointGroupAnalyzer(mol)
-    
-    print(f"Detected Point Group: {pga.get_pointgroup()}")
-    
-    symm_ops = pga.get_symmetry_operations()
-    print(f"Found {len(symm_ops)} symmetry operations.")
-    
-    target_coords = mol.cart_coords[target_atom_indices]
-    
-    permutations = []
-    
-    for op in symm_ops:
-        # Apply symmetry operation to target coordinates
-        transformed_coords = op.operate_multi(target_coords)
-        
-        # Find which index each transformed coordinate matches in the original target_coords
-        perm = []
-        for t_coord in transformed_coords:
-            # Find index in target_coords that is closest to t_coord
-            diffs = target_coords - t_coord
-            dists = np.linalg.norm(diffs, axis=1)
-            match_idx = np.argmin(dists)
-            
-            if dists[match_idx] > 0.1:
-                raise ValueError(f"Symmetry operation {op} mapping failed. Min dist: {dists[match_idx]}")
-            
-            perm.append(match_idx)
-        
-        permutations.append(perm)
-        
-    # Filter unique permutations (sometimes different ops lead to same permutation if points are special)
+def _deduplicate_and_invert(permutations):
+    """Helper: deduplicate permutations and compute their inverses."""
     unique_perms = []
     seen = set()
     for p in permutations:
@@ -46,17 +11,125 @@ def get_permutations(xyz_file, target_atom_indices):
         if p_tuple not in seen:
             unique_perms.append(p)
             seen.add(p_tuple)
-            
-    print(f"Unique permutations: {len(unique_perms)}")
-    
-    # Generate inverse permutations for lookup
+
     p_invs = []
     for p in unique_perms:
         inv = [0] * len(p)
         for i, val in enumerate(p):
             inv[val] = i
         p_invs.append(inv)
-        
+
+    return unique_perms, p_invs
+
+
+def get_permutations_all_atoms(xyz_file, target_atom_indices, tolerance=1.0):
+    """
+    Returns permutations of the target atoms under the molecule's full symmetry
+    group, considering ALL atoms when matching. Operations that map any target
+    atom onto a non-target position are skipped.
+
+    Use this for total unique-structure counting (Pólya enumeration).
+    """
+    mol = Molecule.from_file(xyz_file)
+    pga = PointGroupAnalyzer(mol)
+
+    print(f"Detected Point Group: {pga.get_pointgroup()}")
+
+    symm_ops = pga.get_symmetry_operations()
+    print(f"Found {len(symm_ops)} symmetry operations.")
+
+    all_coords = mol.cart_coords
+    target_set = set(target_atom_indices)
+    # Map global index -> position in target list
+    global_to_target = {g: t for t, g in enumerate(target_atom_indices)}
+
+    permutations = []
+    skipped = 0
+
+    for op in symm_ops:
+        transformed_all = op.operate_multi(all_coords)
+
+        perm = []
+        valid = True
+        for t_idx in target_atom_indices:
+            t_coord = transformed_all[t_idx]
+            diffs = all_coords - t_coord
+            dists = np.linalg.norm(diffs, axis=1)
+            match_global = np.argmin(dists)
+
+            if dists[match_global] > tolerance:
+                valid = False
+                break
+
+            if match_global not in target_set:
+                # This op maps a target atom to a non-target position — skip
+                valid = False
+                break
+
+            perm.append(global_to_target[match_global])
+
+        if valid:
+            permutations.append(perm)
+        else:
+            skipped += 1
+
+    if skipped:
+        print(f"Skipped {skipped} ops that don't preserve the target subset.")
+
+    unique_perms, p_invs = _deduplicate_and_invert(permutations)
+    print(f"Unique permutations (all-atom): {len(unique_perms)}")
+
+    return unique_perms, p_invs, pga.get_pointgroup().sch_symbol
+
+
+def get_permutations_target_atoms(xyz_file, target_atom_indices, tolerance=1.0):
+    """
+    Returns permutations of the target atoms by applying symmetry operations
+    ONLY to the target atom coordinates and matching within that subset.
+
+    Use this for training-set generation and geometry extrapolation, where
+    only the symmetry of the target sub-lattice matters.
+    """
+    mol = Molecule.from_file(xyz_file)
+    pga = PointGroupAnalyzer(mol)
+
+    print(f"Detected Point Group: {pga.get_pointgroup()}")
+
+    symm_ops = pga.get_symmetry_operations()
+    print(f"Found {len(symm_ops)} symmetry operations.")
+
+    target_coords = mol.cart_coords[target_atom_indices]
+
+    permutations = []
+    skipped = 0
+
+    for op in symm_ops:
+        transformed_coords = op.operate_multi(target_coords)
+
+        perm = []
+        valid = True
+        for t_coord in transformed_coords:
+            diffs = target_coords - t_coord
+            dists = np.linalg.norm(diffs, axis=1)
+            match_idx = np.argmin(dists)
+
+            if dists[match_idx] > tolerance:
+                valid = False
+                break
+
+            perm.append(match_idx)
+
+        if valid:
+            permutations.append(perm)
+        else:
+            skipped += 1
+
+    if skipped:
+        print(f"Skipped {skipped} ops that don't map within target subset.")
+
+    unique_perms, p_invs = _deduplicate_and_invert(permutations)
+    print(f"Unique permutations (target-only): {len(unique_perms)}")
+
     return unique_perms, p_invs, pga.get_pointgroup().sch_symbol
 
 def get_cycle_lengths(perm):
@@ -122,7 +195,7 @@ if __name__ == "__main__":
     xyz_path = sys.argv[1]
     # For porphyrin in the example, carbons are 0-19
     target_indices = list(range(20))
-    perms, pg = get_permutations(xyz_path, target_indices)
+    perms, p_invs, pg = get_permutations_all_atoms(xyz_path, target_indices)
     print(f"Point Group: {pg}")
     print(f"Permutations: {len(perms)}")
     for i, p in enumerate(perms):
