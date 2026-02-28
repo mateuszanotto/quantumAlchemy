@@ -10,7 +10,7 @@ import pickle
 import nablachem.alchemy
 from tqdm import tqdm
 from multiprocessing import Pool
-from .symmetry import get_permutations, get_pet_count, get_pet_counts_by_k
+from .symmetry import get_permutations_all_atoms, get_permutations_target_atoms, get_pet_count, get_pet_counts_by_k
 from .results import extract_all
 from pymatgen.core import Molecule
 
@@ -324,35 +324,35 @@ for geom in *.xyz; do
     
     # Extract charge from 2nd line (e.g. "Charge: 0")
     # This reads the last column of the 2nd line
-    carga=$(sed -n '2p' "$geom" | awk '{print $NF}')
+    charge=$(sed -n '2p' "$geom" | awk '{print $NF}')
     
     # Skip if already being processed or done
     if [ -e "run/$geom_name/$geom_name.out" ]; then
-        echo "O arquivo $geom_name já existe ou está rodando. Pulando..."
+        echo "The file $geom_name exists. Skipping..."
         continue
     fi
 
-    echo "Preparando conformero: $geom_name (Carga: $carga)"
+    echo "Preparing conformer: $geom_name (Charge: $charge)"
     mkdir -p "run/$geom_name"
     cp "$geom" "run/$geom_name/"
 
     # Generate the ORCA input file
     cat <<EOF > "run/$geom_name/$geom_name.inp"
 $INPUT_HEADER
-* xyzfile $carga 2 ${geom_name}.xyz
+* xyzfile $charge 2 ${geom_name}.xyz
 EOF
 
     cd "run/$geom_name" || exit
 
     # Execute ORCA
     ORCA_EXEC=${ORCA:-orca}
-    echo "Executando ORCA para $geom_name..."
+    echo "$geom_name running..."
     $ORCA_EXEC "${geom_name}.inp" > "${geom_name}.out"
 
     # Copy output back to training_outputs
     cp "${geom_name}.out" "$OUTPUT_DIR/"
 
-    echo "$geom_name concluído"
+    echo "$geom_name done"
     cd "$BASEDIR" || exit
 done
 """
@@ -376,9 +376,13 @@ def phase_setup_training(args):
     print(f"Found {len(target_indices)} atoms of type {target_type}.")
 
     # Symmetry
-    perms, p_invs, pg_symbol = get_permutations(args.reference, target_indices)
-    total_unique_all_subs = get_pet_count(perms, 3) 
+    # All-atom permutations for accurate total PET count
+    perms_all, _, pg_symbol = get_permutations_all_atoms(args.reference, target_indices)
+    total_unique_all_subs = get_pet_count(perms_all, 3) 
     print(f"Total theoretically unique structures (all possible substitutions): {total_unique_all_subs}")
+
+    # Target-only permutations for training geometry generation
+    perms, p_invs, _ = get_permutations_target_atoms(args.reference, target_indices)
 
     config = {
         "reference_file": args.reference,
@@ -505,7 +509,7 @@ def main():
         
         if config["reference_file"] == args.reference:
             target_indices = config["target_indices"]
-            perms, p_invs, pg = get_permutations(args.reference, target_indices)
+            perms, p_invs, pg = get_permutations_target_atoms(args.reference, target_indices)
             if phase_extract_predict(config, perms, p_invs, args):
                 return
 
